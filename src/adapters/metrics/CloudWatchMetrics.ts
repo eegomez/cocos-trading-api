@@ -6,7 +6,7 @@
  *
  * Features:
  * - Custom metrics in CloudWatch for monitoring and alerting
- * - Automatic batching to reduce API calls
+ * - Automatic batching to reduce API calls (max 20 metrics per request)
  * - Dimensions for filtering and grouping
  * - Works with AWS free tier (10 custom metrics free, then $0.30/metric/month)
  *
@@ -19,39 +19,35 @@
  * Free Tier Limits:
  * - 10 custom metrics (free forever)
  * - 1 million API requests (PutMetricData calls)
- * - For interview/demo: Track key metrics only to stay under limits
- *
- * Note: This is a simplified implementation using console.log.
- * For production, use AWS SDK to actually send metrics to CloudWatch.
- * To keep it simple for interview, we'll structure metrics but not send them.
+ * - Automatic batching reduces API calls significantly
  */
 
 import { IMetrics, MetricDimensions } from '@/interfaces/IMetrics';
 import { logger } from '@/adapters/logging/LoggerFactory';
+import {
+  CloudWatchClient,
+  PutMetricDataCommand,
+  MetricDatum,
+} from '@aws-sdk/client-cloudwatch';
+import { env } from '@/config/env';
 
 /**
- * CloudWatch Metrics using structured console output
+ * CloudWatch Metrics - Production Implementation
  *
- * For simplicity (interview/demo), this logs metrics in a structured format.
- * In production, replace console.log with actual AWS SDK calls.
- *
- * Example production implementation:
- * ```typescript
- * import { CloudWatchClient, PutMetricDataCommand } from '@aws-sdk/client-cloudwatch';
- * const client = new CloudWatchClient({ region: 'us-east-1' });
- * await client.send(new PutMetricDataCommand({
- *   Namespace: 'CocosTrading',
- *   MetricData: [...]
- * }));
- * ```
+ * Sends custom metrics to AWS CloudWatch for monitoring and alerting.
+ * Metrics are batched and sent every 60 seconds to reduce API calls.
  */
 export class CloudWatchMetrics implements IMetrics {
   private namespace: string;
-  private buffer: any[] = [];
+  private buffer: MetricDatum[] = [];
   private flushInterval: NodeJS.Timeout;
+  private client: CloudWatchClient;
 
   constructor(namespace: string = 'CocosTrading') {
     this.namespace = namespace;
+    this.client = new CloudWatchClient({
+      region: env.AWS_REGION || 'us-east-1',
+    });
 
     // Auto-flush metrics every 60 seconds to reduce API calls
     this.flushInterval = setInterval(() => {
@@ -118,26 +114,30 @@ export class CloudWatchMetrics implements IMetrics {
 
     const metricsToSend = this.buffer.splice(0);
 
-    // For interview/demo: Metrics are buffered but not sent
-    // In production: Replace with actual CloudWatch SDK call to PutMetricData
+    try {
+      // CloudWatch accepts max 20 metrics per request, batch them
+      const chunks = this.chunkArray(metricsToSend, 20);
 
-    /**
-     * Production Implementation (commented out for simplicity):
-     *
-     * import { CloudWatchClient, PutMetricDataCommand } from '@aws-sdk/client-cloudwatch';
-     *
-     * const client = new CloudWatchClient({ region: process.env.AWS_REGION || 'us-east-1' });
-     *
-     * // CloudWatch accepts max 20 metrics per request, batch them
-     * const chunks = this.chunkArray(metricsToSend, 20);
-     *
-     * for (const chunk of chunks) {
-     *   await client.send(new PutMetricDataCommand({
-     *     Namespace: this.namespace,
-     *     MetricData: chunk
-     *   }));
-     * }
-     */
+      for (const chunk of chunks) {
+        const command = new PutMetricDataCommand({
+          Namespace: this.namespace,
+          MetricData: chunk,
+        });
+
+        await this.client.send(command);
+      }
+
+      logger.debug(
+        { count: metricsToSend.length, namespace: this.namespace },
+        'Flushed metrics to CloudWatch'
+      );
+    } catch (error) {
+      logger.error(
+        { error, count: metricsToSend.length },
+        'Failed to send metrics to CloudWatch'
+      );
+      // Don't re-throw - we don't want to crash the app if CloudWatch is unavailable
+    }
   }
 
   private formatDimensions(
@@ -149,6 +149,17 @@ export class CloudWatchMetrics implements IMetrics {
       Name: key,
       Value: String(value),
     }));
+  }
+
+  /**
+   * Helper method to split array into chunks
+   */
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
   }
 
   /**
