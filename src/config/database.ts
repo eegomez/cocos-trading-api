@@ -15,6 +15,10 @@ const pool = new Pool({
   database: env.DB_NAME,
   user: env.DB_USER,
   password: env.DB_PASSWORD,
+  // SSL configuration (required for cloud databases like Neon, AWS RDS, etc.)
+  ssl: {
+    rejectUnauthorized: false,
+  },
   // Pool configuration from database.config.ts
   min: DATABASE_POOL_CONFIG.min,
   max: DATABASE_POOL_CONFIG.max,
