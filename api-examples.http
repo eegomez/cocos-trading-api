@@ -1,0 +1,822 @@
+###############################################################################
+# Cocos Trading API - Example Requests
+###############################################################################
+#
+# HOW TO USE THIS FILE:
+#
+# Option 1: REST Client (VS Code/IntelliJ)
+#   VS Code: Install "REST Client" extension by Huachao Mao
+#     - Click "Send Request" above each request
+#     - Or use Cmd+Option+R (Mac) / Ctrl+Alt+R (Windows)
+#
+#   IntelliJ/WebStorm: Built-in support
+#     - Click the green play button next to each request
+#
+# Option 2: curl (Command Line)
+#   - Copy the curl command from the comments above each request
+#   - Paste into your terminal
+#   - Works on macOS, Linux, Windows (PowerShell/WSL)
+#
+# Option 3: Postman
+#   - Copy the curl command from the comments
+#   - Import into Postman (File → Import → Raw Text → paste curl command)
+#
+###############################################################################
+
+# Variables (customize these)
+@baseUrl = http://localhost:3000
+@apiUrl = {{baseUrl}}/api/v1
+@healthUrl = {{baseUrl}}/api
+
+###############################################################################
+# 1. HEALTH CHECK
+###############################################################################
+
+### Check if API is running
+# Expected: 200 OK
+# Response: { "status": "ok", "timestamp": "...", "service": "cocos-trading-api" }
+# Note: Health endpoint is unversioned (stays at /api/health)
+#
+# curl command:
+# curl http://localhost:3000/api/health
+GET {{healthUrl}}/health
+
+###############################################################################
+# 2. PORTFOLIO ENDPOINTS
+###############################################################################
+
+### Get portfolio for user 1
+# Expected: 200 OK
+# Response: User's complete portfolio with positions, cash, and total balance
+# Shows:
+#   - totalBalance: Cash + market value of all positions
+#   - availableCash: Cash available to trade
+#   - positions: Array of stock positions with returns
+#
+# curl command:
+# curl http://localhost:3000/api/v1/users/1/portfolio
+GET {{apiUrl}}/users/1/portfolio
+
+###
+### Get portfolio for user 2
+# Expected: 200 OK
+# Different user, different portfolio
+GET {{apiUrl}}/users/2/portfolio
+
+###
+### Get portfolio for non-existent user
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "User with ID 9999 not found" } }
+GET {{apiUrl}}/users/9999/portfolio
+
+###
+### Get portfolio with invalid user ID
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Invalid user ID" } }
+GET {{apiUrl}}/users/abc/portfolio
+
+###############################################################################
+# 3. INSTRUMENT SEARCH
+###############################################################################
+
+### Search for instruments by ticker (AAPL)
+# Expected: 200 OK
+# Response: Array of instruments matching "AAPL" with current prices
+# Shows: ticker, name, lastPrice, previousClose, dailyChange (%)
+#
+# curl command:
+# curl "http://localhost:3000/api/v1/instruments/search?q=AAPL"
+GET {{apiUrl}}/instruments/search?q=AAPL
+
+###
+### Search for instruments by partial ticker (PA)
+# Expected: 200 OK
+# Returns: PAMP, PAM, etc. - all tickers containing "PA"
+GET {{apiUrl}}/instruments/search?q=PA
+
+###
+### Search for instruments by name (PAMPA)
+# Expected: 200 OK
+# Searches both ticker and company name
+GET {{apiUrl}}/instruments/search?q=PAMPA
+
+###
+### Search with no query parameter
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Search query is required" } }
+GET {{apiUrl}}/instruments/search
+
+###
+### Search with empty query
+# Expected: 400 Bad Request
+GET {{apiUrl}}/instruments/search?q=
+
+###
+### Search for non-existent instrument
+# Expected: 200 OK
+# Response: Empty array []
+GET {{apiUrl}}/instruments/search?q=ZZZZZZ
+
+###############################################################################
+# 4. CREATE ORDERS - MARKET ORDERS
+###############################################################################
+
+### Create a MARKET BUY order (specify SIZE)
+# Expected: 201 Created
+# Response: Order with status "FILLED" (executed immediately at current market price)
+# This buys 1 share of instrument 34 at current market price
+# User must have sufficient cash
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":34,"side":"BUY","type":"MARKET","size":1}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+###
+### Create a MARKET BUY order (specify AMOUNT in ARS)
+# Expected: 201 Created
+# Calculates how many shares can be bought with 10,000 ARS
+# Size will be: floor(10000 / currentPrice)
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":34,"side":"BUY","type":"MARKET","amount":10000}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "amount": 10000
+}
+
+###
+### Create a MARKET SELL order
+# Expected: 201 Created
+# Response: Order with status "FILLED" (executed immediately)
+# User must own at least 1 share of instrument 34
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":34,"side":"SELL","type":"MARKET","size":1}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "SELL",
+  "type": "MARKET",
+  "size": 1
+}
+
+###############################################################################
+# 5. CREATE ORDERS - LIMIT ORDERS
+###############################################################################
+
+### Create a LIMIT BUY order
+# Expected: 201 Created
+# Response: Order with status "NEW" (not executed yet, waiting for price)
+# Will execute when market price reaches 900 or lower
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":34,"side":"BUY","type":"LIMIT","size":1,"price":900}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 1,
+  "price": 900
+}
+
+###
+### Create a LIMIT SELL order
+# Expected: 201 Created
+# Response: Order with status "NEW"
+# Will execute when market price reaches 1000 or higher
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "SELL",
+  "type": "LIMIT",
+  "size": 1,
+  "price": 1000
+}
+
+###############################################################################
+# 6. CREATE ORDERS - CASH OPERATIONS
+###############################################################################
+
+### CASH_IN - Deposit money
+# Expected: 201 Created
+# Adds 50,000 ARS to user's account
+# Must use instrumentId 66 (ARS currency)
+# Note: Price is automatically set to 1 (1 ARS = 1 ARS), so size = amount
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":66,"side":"CASH_IN","type":"MARKET","size":50000}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 66,
+  "side": "CASH_IN",
+  "type": "MARKET",
+  "size": 50000
+}
+
+###
+### CASH_OUT - Withdraw money
+# Expected: 201 Created if user has sufficient funds
+# Expected: 201 Created with status "REJECTED" if insufficient funds
+# Removes 10,000 ARS from user's account
+# Must use instrumentId 66 (ARS currency)
+# Note: Price is automatically set to 1 (1 ARS = 1 ARS), so size = amount
+#
+# curl command:
+# curl -X POST http://localhost:3000/api/v1/orders \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1,"instrumentId":66,"side":"CASH_OUT","type":"MARKET","size":10000}'
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 66,
+  "side": "CASH_OUT",
+  "type": "MARKET",
+  "size": 10000
+}
+
+###############################################################################
+# 7. ORDER VALIDATION ERRORS
+###############################################################################
+
+### Order with insufficient funds
+# Expected: 201 Created with status "REJECTED"
+# Response: Order object with status="REJECTED"
+# Reason: User doesn't have 100,000,000 ARS
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 100000
+}
+
+###
+### Order with insufficient shares (trying to sell more than owned)
+# Expected: 201 Created with status "REJECTED"
+# Response: Order object with status="REJECTED"
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "SELL",
+  "type": "MARKET",
+  "size": 100000
+}
+
+###
+### CASH_OUT with insufficient funds
+# Expected: 201 Created with status "REJECTED"
+# Trying to withdraw 1,000,000 ARS
+# Note: Price is automatically set to 1, so size = amount
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 66,
+  "side": "CASH_OUT",
+  "type": "MARKET",
+  "size": 1000000
+}
+
+###
+### Missing required field (no side)
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Invalid order data", "details": {...} } }
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "type": "MARKET",
+  "size": 1
+}
+
+###
+### Invalid order type
+# Expected: 400 Bad Request
+# Valid types are: MARKET, LIMIT
+POST {{apiUrl}>/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "STOP_LOSS",
+  "size": 1
+}
+
+###
+### LIMIT order without price
+# Expected: 400 Bad Request
+# Response: LIMIT orders must include "price"
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 1
+}
+
+###
+### MARKET order with price (invalid)
+# Expected: 400 Bad Request
+# Response: MARKET orders should not include "price"
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1,
+  "price": 900
+}
+
+###
+### Both size and amount provided (invalid)
+# Expected: 400 Bad Request
+# Response: Must specify either "size" or "amount", not both
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1,
+  "amount": 10000
+}
+
+###
+### Neither size nor amount provided
+# Expected: 400 Bad Request
+# Response: Must specify either "size" or "amount"
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET"
+}
+
+###
+### Invalid user ID (non-existent)
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "User with ID 9999 not found" } }
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 9999,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+###
+### Invalid instrument ID (non-existent)
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "Instrument with ID 99999 not found" } }
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 99999,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+###############################################################################
+# 8. GET ORDER BY ID
+###############################################################################
+
+### Get order details by ID
+# Expected: 200 OK
+# Response: Full order details including ticker, name, calculated totalAmount
+# Replace :orderId with actual order ID from previous POST responses
+#
+# curl command:
+# curl http://localhost:3000/api/v1/orders/1
+GET {{apiUrl}}/orders/1
+
+###
+### Get non-existent order
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "Order with ID 99999 not found" } }
+GET {{apiUrl}}/orders/99999
+
+###
+### Get order with invalid ID format
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Invalid order ID" } }
+GET {{apiUrl}}/orders/abc
+
+###############################################################################
+# 9. CANCEL ORDERS
+###############################################################################
+
+### Cancel a NEW order (LIMIT order not yet executed)
+# Expected: 200 OK
+# Response: { "success": true, "message": "Order cancelled successfully", "order": {...} }
+# Only NEW orders can be cancelled (LIMIT orders waiting for price)
+# First create a LIMIT order, then use its ID here
+#
+# curl command:
+# curl -X PATCH http://localhost:3000/api/v1/orders/5/cancel \
+#   -H "Content-Type: application/json" \
+#   -d '{"userId":1}'
+PATCH {{apiUrl}}/orders/5/cancel
+Content-Type: application/json
+
+{
+  "userId": 1
+}
+
+###
+### Cancel a FILLED order (should fail)
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Only NEW orders can be cancelled" } }
+# Cannot cancel already executed orders
+PATCH {{apiUrl}}/orders/1/cancel
+Content-Type: application/json
+
+{
+  "userId": 1
+}
+
+###
+### Cancel a REJECTED order (should fail)
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Only NEW orders can be cancelled" } }
+PATCH {{apiUrl}}/orders/999/cancel
+Content-Type: application/json
+
+{
+  "userId": 1
+}
+
+###
+### Cancel order without userId
+# Expected: 400 Bad Request
+# Response: { "success": false, "error": { "message": "Valid userId is required" } }
+PATCH {{apiUrl}}/orders/5/cancel
+Content-Type: application/json
+
+{}
+
+###
+### Cancel order with wrong userId
+# Expected: 403 Forbidden (or 404 if order doesn't exist)
+# Response: { "success": false, "error": { "message": "Order not found or not owned by user" } }
+# Users can only cancel their own orders
+PATCH {{apiUrl}}/orders/5/cancel
+Content-Type: application/json
+
+{
+  "userId": 999
+}
+
+###
+### Cancel non-existent order
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "Order with ID 99999 not found" } }
+PATCH {{apiUrl}}/orders/99999/cancel
+Content-Type: application/json
+
+{
+  "userId": 1
+}
+
+###############################################################################
+# 10. GET USER ORDERS (with Cursor Pagination)
+###############################################################################
+
+### Get orders for user 1 (default pagination)
+# Expected: 200 OK
+# Response: {
+#   "success": true,
+#   "orders": [...],      // Array of orders (max 50 by default)
+#   "nextCursor": "...",  // ISO timestamp for next page (null if no more)
+#   "hasMore": true       // Boolean indicating if there are more results
+# }
+# Orders are sorted by datetime DESC (newest first)
+# Uses cursor-based pagination for efficient deep pagination
+#
+# curl command:
+# curl http://localhost:3000/api/v1/users/1/orders
+GET {{apiUrl}}/users/1/orders
+
+###
+### Get orders with custom limit (first page)
+# Expected: 200 OK
+# Limit: 20 orders per page (max is 200)
+# Response includes nextCursor and hasMore fields
+#
+# curl command:
+# curl "http://localhost:3000/api/v1/users/1/orders?limit=20"
+GET {{apiUrl}}/users/1/orders?limit=20
+
+###
+### Get orders (next page using cursor)
+# Expected: 200 OK
+# Use nextCursor from previous response to get next page
+# Cursor is an ISO timestamp: datetime of last order from previous page
+# Replace the cursor value with actual nextCursor from previous response
+GET {{apiUrl}}/users/1/orders?limit=20&cursor=2024-01-15T10:30:00.000Z
+
+###
+### Get orders with maximum limit
+# Expected: 200 OK
+# Max limit is 200 (any value above will be capped to 200)
+GET {{apiUrl}}/users/1/orders?limit=200
+
+###
+### Get all orders for user 2
+# Expected: 200 OK
+GET {{apiUrl}}/users/2/orders
+
+###
+### Get orders for non-existent user
+# Expected: 200 OK
+# Response: { "success": true, "orders": [], "nextCursor": null, "hasMore": false }
+# Empty array is not an error - user might just have no orders
+GET {{apiUrl}}/users/9999/orders
+
+###
+### Get orders with invalid user ID
+# Expected: 400 Bad Request
+GET {{apiUrl}}/users/abc/orders
+
+###
+### Get orders with invalid cursor format
+# Expected: 400 Bad Request (if validation is strict)
+# Cursor must be a valid ISO timestamp
+GET {{apiUrl}}/users/1/orders?cursor=invalid-timestamp
+
+###############################################################################
+# 11. API INFO & DOCUMENTATION
+###############################################################################
+
+### Get API information (root endpoint)
+# Expected: 200 OK
+# Response: { "name": "Cocos Trading API", "version": "1.0.0", "description": "..." }
+GET {{baseUrl}}/
+
+###
+### Access Swagger API Documentation
+# Expected: 200 OK (HTML page)
+# Opens interactive API documentation in browser
+# You can test endpoints directly from Swagger UI
+GET {{baseUrl}}/api-docs
+
+###############################################################################
+# 12. ERROR CASES - 404s
+###############################################################################
+
+### Non-existent endpoint
+# Expected: 404 Not Found
+# Response: { "success": false, "error": { "message": "not found" } }
+GET {{apiUrl}}/nonexistent
+
+###
+### Wrong HTTP method
+# Expected: 404 Not Found
+# Only POST is allowed for /api/orders
+DELETE {{apiUrl}}/orders/1
+
+###############################################################################
+# 13. RATE LIMITING TEST
+###############################################################################
+
+### Test global rate limiter (health endpoint - no rate limit)
+# Health endpoint is excluded from rate limiting
+# No matter how many times you call it, should never return 429
+GET {{healthUrl}}/health
+
+###
+### Test global rate limiter (any API endpoint)
+# Expected: 429 Too Many Requests after 100 requests within 1 minute
+# Response: {
+#   "success": false,
+#   "error": {
+#     "message": "Too many requests. Please try again later. Limit: 100 requests per minute."
+#   }
+# }
+# RateLimit-* headers included in response
+GET {{apiUrl}}/users/1/portfolio
+
+###
+### Test order creation rate limiter (stricter)
+# Expected: 429 Too Many Requests after 30 requests within 1 minute
+# Response: {
+#   "success": false,
+#   "error": {
+#     "message": "Too many order requests. Please slow down. Limit: 30 orders per minute."
+#   }
+# }
+# Prevents rapid-fire order spam and flash trading abuse
+POST {{apiUrl}}/orders
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "instrumentId": 34,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+###
+### Test search rate limiter (moderate)
+# Expected: 429 Too Many Requests after 60 requests within 1 minute
+# Response: {
+#   "success": false,
+#   "error": {
+#     "message": "Too many search requests. Please slow down. Limit: 60 searches per minute."
+#   }
+# }
+# Search queries can be expensive (DB LIKE queries)
+GET {{apiUrl}}/instruments/search?q=AAPL
+
+###############################################################################
+# WORKFLOW EXAMPLES
+###############################################################################
+
+### EXAMPLE WORKFLOW 1: New User Portfolio Journey
+#
+# 1. Check initial portfolio (should have only cash from CASH_IN in sample data)
+#    GET /api/v1/users/1/portfolio
+#
+# 2. Search for stocks to buy
+#    GET /api/v1/instruments/search?q=AAPL
+#
+# 3. Buy stock with MARKET order
+#    POST /api/v1/orders { userId: 1, instrumentId: 34, side: "BUY", type: "MARKET", size: 10 }
+#
+# 4. Check updated portfolio (should see new position)
+#    GET /api/v1/users/1/portfolio
+#
+# 5. View order history
+#    GET /api/v1/users/1/orders
+
+###
+### EXAMPLE WORKFLOW 2: Sell Existing Position
+#
+# 1. Check current positions
+#    GET /api/v1/users/1/portfolio
+#
+# 2. Sell some shares
+#    POST /api/v1/orders { userId: 1, instrumentId: 34, side: "SELL", type: "MARKET", size: 5 }
+#
+# 3. Verify cash increased
+#    GET /api/v1/users/1/portfolio
+
+###
+### EXAMPLE WORKFLOW 3: Cash Management
+#
+# 1. Check current cash balance
+#    GET /api/v1/users/1/portfolio
+#
+# 2. Deposit more cash (size = amount in ARS, price auto-set to 1)
+#    POST /api/v1/orders { userId: 1, instrumentId: 66, side: "CASH_IN", type: "MARKET", size: 100000 }
+#
+# 3. Verify balance increased
+#    GET /api/v1/users/1/portfolio
+#
+# 4. Withdraw some cash (size = amount in ARS, price auto-set to 1)
+#    POST /api/v1/orders { userId: 1, instrumentId: 66, side: "CASH_OUT", type: "MARKET", size: 50000 }
+
+###
+### EXAMPLE WORKFLOW 4: Limit Order Management
+#
+# 1. Create a LIMIT order to buy at lower price
+#    POST /api/v1/orders { userId: 1, instrumentId: 34, side: "BUY", type: "LIMIT", size: 10, price: 900 }
+#
+# 2. Check order status (should be NEW)
+#    GET /api/v1/orders/:orderId
+#
+# 3. View all orders including pending ones
+#    GET /api/v1/users/1/orders
+#
+# 4. Cancel the LIMIT order if no longer wanted
+#    PATCH /api/v1/orders/:orderId/cancel { userId: 1 }
+#
+# 5. Verify order is cancelled
+#    GET /api/v1/orders/:orderId
+
+###############################################################################
+# NOTES
+###############################################################################
+#
+# Order Statuses:
+#   - NEW: LIMIT order created, waiting for price (can be cancelled)
+#   - FILLED: Order executed successfully (cannot be cancelled)
+#   - REJECTED: Order validation failed (insufficient funds/shares)
+#   - CANCELLED: Order was cancelled by user (only NEW orders can be cancelled)
+#
+# Order Sides:
+#   - BUY: Purchase stocks
+#   - SELL: Sell stocks you own
+#   - CASH_IN: Deposit money (instrumentId must be 66 - ARS, price auto-set to 1)
+#   - CASH_OUT: Withdraw money (instrumentId must be 66 - ARS, price auto-set to 1)
+#
+# Order Types:
+#   - MARKET: Execute immediately at current market price
+#   - LIMIT: Execute when market reaches specified price (stays as NEW until then)
+#
+# Important IDs:
+#   - Instrument 66 = ARS (Argentine Peso) - used for cash operations
+#   - Instrument 34 = PAMP (example stock)
+#   - User 1, 2, 3 = Sample users with different portfolios
+#
+# Validation Rules:
+#   - Must specify EITHER size OR amount, not both
+#   - LIMIT orders MUST include price (for stocks)
+#   - MARKET orders MUST NOT include price (price comes from market data)
+#   - CASH_IN/CASH_OUT: Price is automatically set to 1, use size for ARS amount
+#   - CASH operations must use instrumentId 66 (ARS)
+#   - Cannot buy with insufficient funds (order will be REJECTED)
+#   - Cannot sell more shares than you own (order will be REJECTED)
+#   - Only NEW orders can be cancelled (use PATCH /orders/:id/cancel)
+#   - Users can only cancel their own orders
+#
+# Pagination (for GET /users/:id/orders):
+#   - Cursor-based pagination using datetime field
+#   - Default limit: 50 orders per page
+#   - Maximum limit: 200 orders per page
+#   - Response includes: orders[], nextCursor, hasMore
+#   - Use nextCursor value in next request: ?cursor=<ISO_TIMESTAMP>
+#   - Why cursor pagination? Efficient for large datasets, no offset scanning
+#
+# Rate Limiting:
+#   - Global: 100 requests per minute (all endpoints except /health)
+#   - Orders: 30 requests per minute (POST /orders)
+#   - Search: 60 requests per minute (GET /instruments/search)
+#   - Health endpoint: No rate limit
+#   - Rate limit tracked by IP address
+#   - Returns 429 Too Many Requests when exceeded
+#   - RateLimit-* headers included in response
+#
+# Response Format:
+#   Success: { "success": true, "data": {...} } or { "order": {...} }
+#   Error: { "success": false, "error": { "message": "...", "details": {...} } }
+#
+###############################################################################

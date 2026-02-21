@@ -1,0 +1,446 @@
+openapi: 3.0.3
+info:
+  title: Cocos Trading API
+  version: 1.0.0
+  description: |
+    A production-ready Trading Portfolio Management API built with Node.js, TypeScript, Express, and PostgreSQL.
+
+    **Features:**
+    - Portfolio management with real-time calculations
+    - Order execution (MARKET & LIMIT orders)
+    - Instrument search
+    - Transaction-safe order processing
+  contact:
+    name: Erik Gomez
+    email: # Add your email here
+    url: # Add your GitHub/LinkedIn URL here
+  license:
+    name: ISC
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: http://localhost:3000
+    description: Production server
+
+tags:
+  - name: Portfolio
+    description: Portfolio management operations
+  - name: Instruments
+    description: Instrument search operations
+  - name: Orders
+    description: Order management operations
+  - name: Health
+    description: Health check endpoints
+
+paths:
+  /api/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the API is running and healthy
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+                  service:
+                    type: string
+                    example: cocos-trading-api
+
+  /api/portfolio/{userId}:
+    get:
+      tags:
+        - Portfolio
+      summary: Get user portfolio
+      description: Retrieve complete portfolio including positions, returns, and available cash
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Portfolio retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/instruments/search:
+    get:
+      tags:
+        - Instruments
+      summary: Search instruments
+      description: Search for instruments by ticker or name
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query (ticker or name)
+          schema:
+            type: string
+            example: GGAL
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  count:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InstrumentWithPrice'
+        '400':
+          description: Invalid query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/orders:
+    post:
+      tags:
+        - Orders
+      summary: Create order
+      description: Submit a new order (MARKET or LIMIT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              marketBuy:
+                summary: Market Buy Order
+                value:
+                  userId: 1
+                  instrumentId: 34
+                  side: BUY
+                  type: MARKET
+                  size: 10
+              limitSell:
+                summary: Limit Sell Order
+                value:
+                  userId: 1
+                  instrumentId: 34
+                  side: SELL
+                  type: LIMIT
+                  size: 10
+                  price: 950.50
+              amountBased:
+                summary: Buy with Amount
+                value:
+                  userId: 1
+                  instrumentId: 34
+                  side: BUY
+                  type: MARKET
+                  amount: 10000
+      responses:
+        '201':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User or instrument not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/orders/{orderId}:
+    get:
+      tags:
+        - Orders
+      summary: Get order by ID
+      description: Retrieve order details including instrument information
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Order ID
+          schema:
+            type: integer
+            example: 123
+      responses:
+        '200':
+          description: Order retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetails'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Portfolio:
+      type: object
+      properties:
+        userId:
+          type: integer
+          example: 1
+        totalBalance:
+          type: number
+          format: double
+          description: Total account value (cash + positions)
+          example: 1520000.50
+        availableCash:
+          type: number
+          format: double
+          description: Cash available for trading
+          example: 750000.00
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Position'
+
+    Position:
+      type: object
+      properties:
+        instrumentId:
+          type: integer
+          example: 34
+        ticker:
+          type: string
+          example: GGAL
+        name:
+          type: string
+          example: Grupo Financiero Galicia
+        quantity:
+          type: integer
+          description: Number of shares held
+          example: 100
+        averageBuyPrice:
+          type: number
+          format: double
+          description: Average cost basis
+          example: 850.50
+        currentPrice:
+          type: number
+          format: double
+          description: Current market price
+          example: 885.80
+        marketValue:
+          type: number
+          format: double
+          description: Current value (quantity × price)
+          example: 88580.00
+        totalReturn:
+          type: number
+          format: double
+          description: Return percentage vs cost basis
+          example: 4.15
+        dailyReturn:
+          type: number
+          format: double
+          description: Daily return percentage
+          example: -2.30
+
+    InstrumentWithPrice:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 34
+        ticker:
+          type: string
+          example: GGAL
+        name:
+          type: string
+          example: Grupo Financiero Galicia
+        type:
+          type: string
+          enum: [ACCIONES, MONEDA]
+          example: ACCIONES
+        lastPrice:
+          type: number
+          format: double
+          nullable: true
+          example: 885.80
+        previousClose:
+          type: number
+          format: double
+          nullable: true
+          example: 917.75
+        dailyChange:
+          type: number
+          format: double
+          nullable: true
+          description: Daily change percentage
+          example: -3.48
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - userId
+        - instrumentId
+        - side
+        - type
+      properties:
+        userId:
+          type: integer
+          example: 1
+        instrumentId:
+          type: integer
+          example: 34
+        side:
+          type: string
+          enum: [BUY, SELL, CASH_IN, CASH_OUT]
+          example: BUY
+        type:
+          type: string
+          enum: [MARKET, LIMIT]
+          example: MARKET
+        size:
+          type: integer
+          description: Number of shares (either size or amount required, not both)
+          example: 10
+        amount:
+          type: number
+          format: double
+          description: Total investment amount in ARS (either size or amount required, not both)
+          example: 10000
+        price:
+          type: number
+          format: double
+          description: Limit price (required for LIMIT orders)
+          example: 900.00
+
+    OrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        order:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 123
+            userId:
+              type: integer
+              example: 1
+            instrumentId:
+              type: integer
+              example: 34
+            side:
+              type: string
+              example: BUY
+            type:
+              type: string
+              example: MARKET
+            status:
+              type: string
+              enum: [NEW, FILLED, REJECTED, CANCELLED]
+              example: FILLED
+            size:
+              type: integer
+              example: 10
+            price:
+              type: string
+              example: "885.80"
+            totalAmount:
+              type: number
+              format: double
+              example: 8858.00
+            datetime:
+              type: string
+              format: date-time
+              example: "2026-02-17T15:30:00Z"
+
+    OrderDetails:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        userId:
+          type: integer
+          example: 1
+        instrumentId:
+          type: integer
+          example: 34
+        ticker:
+          type: string
+          example: GGAL
+        name:
+          type: string
+          example: Grupo Financiero Galicia
+        side:
+          type: string
+          example: BUY
+        type:
+          type: string
+          example: MARKET
+        status:
+          type: string
+          example: FILLED
+        size:
+          type: integer
+          example: 10
+        price:
+          type: string
+          example: "885.80"
+        totalAmount:
+          type: number
+          format: double
+          example: 8858.00
+        datetime:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+              example: User with ID 999 not found
+            details:
+              type: object
+              nullable: true
+              description: Additional error details (validation errors, etc.)

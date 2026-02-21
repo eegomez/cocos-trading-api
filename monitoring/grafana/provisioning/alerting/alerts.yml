@@ -1,0 +1,219 @@
+# Grafana Alert Rules Provisioning
+# Auto-configure alert rules on startup
+# Uses only metrics that are actually exposed by the app
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: api_health_alerts
+    folder: Alerts
+    interval: 1m
+    rules:
+      # Alert when API is down
+      - uid: api_down
+        title: API is Down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: up{job="cocos-trading-api"}
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  type: query
+              refId: C
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          description: "The Trading API is down and not responding to health checks"
+          summary: "API is not reachable"
+        labels:
+          severity: critical
+
+      # Alert when memory usage is high
+      - uid: high_memory_usage
+        title: High Memory Usage
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: process_heap_used_bytes
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 100000000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  type: query
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          description: "Heap memory usage is above 100MB for more than 5 minutes"
+          summary: "High memory usage detected"
+        labels:
+          severity: warning
+
+      # Alert when error logs are detected
+      - uid: error_logs_detected
+        title: Error Logs Detected
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Loki
+            model:
+              expr: 'sum(count_over_time({container_name="cocos-app"} |~ "(?i)error|404|500" [5m]))'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 10
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  type: query
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          description: "More than 10 error/404/500 logs detected in the last 5 minutes"
+          summary: "Application errors detected in logs"
+        labels:
+          severity: warning
+
+      # Alert when CPU usage is high
+      - uid: high_cpu_usage
+        title: High CPU Usage
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: rate(process_cpu_user_seconds_total[5m]) + rate(process_cpu_system_seconds_total[5m])
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.8
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  type: query
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          description: "CPU usage is above 80% for more than 5 minutes"
+          summary: "High CPU usage detected"
+        labels:
+          severity: warning

@@ -1,0 +1,34 @@
+# Promtail Configuration
+# Ships Docker container logs to Loki
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape Docker container logs
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Only collect logs from cocos-app container
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(cocos-app|cocos-postgres)'
+        action: keep
+      # Add container name as label
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'container_name'
+        regex: '/(.*)'
+      # Add container ID as label
+      - source_labels: ['__meta_docker_container_id']
+        target_label: 'container_id'
+      # Add service label
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'

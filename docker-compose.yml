@@ -1,0 +1,197 @@
+version: '3.8'
+
+# ==============================================================================
+# COCOS TRADING PLATFORM - LOCAL DEVELOPMENT
+# ==============================================================================
+#
+# Services:
+#   - postgres: PostgreSQL database
+#   - app: Trading API (Node.js/Express)
+#   - prometheus: Metrics collection (scrapes /api/metrics)
+#   - grafana: Metrics visualization & dashboards
+#   - loki: Log aggregation
+#   - promtail: Log shipping to Loki
+#
+# Ports:
+#   - 3000: Trading API
+#   - 3001: Grafana UI (admin/admin)
+#   - 5432: PostgreSQL
+#   - 9090: Prometheus UI
+#   - 3100: Loki API
+#
+# Environment Variables:
+#   LOG_LEVEL: fatal|error|warn|info|debug|trace (default: info)
+#   LOG_PRETTY: true|false (default: false for production)
+#
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: cocos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cocos_trading
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Initialize with schema and seed data
+      - ./database/database.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/indexes.sql:/docker-entrypoint-initdb.d/02-indexes.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cocos-network
+
+  # ----------------------------------------------------------------------------
+  # Trading API Application
+  # ----------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cocos-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      # Server
+      NODE_ENV: production
+      PORT: 3000
+
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cocos_trading
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_MAX_CONNECTIONS: 20
+
+      # Logging (LOCAL MODE)
+      LOG_LEVEL: ${LOG_LEVEL:-info}  # Override with: LOG_LEVEL=debug docker-compose up
+      LOG_PRETTY: ${LOG_PRETTY:-false}
+      LOGGER_TYPE: console  # console for local (logs visible via docker logs)
+
+      # Metrics (LOCAL MODE)
+      METRICS_TYPE: noop  # noop for local (Prometheus scrapes /api/metrics instead)
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - cocos-network
+    labels:
+      # Prometheus service discovery labels
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "3000"
+      prometheus.io/path: "/api/metrics"
+
+  # ----------------------------------------------------------------------------
+  # Prometheus - Metrics Collection
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cocos-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    # No external ports - only accessible by Grafana internally
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - cocos-network
+
+  # ----------------------------------------------------------------------------
+  # Grafana - Dashboards & Visualization
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cocos-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_SERVER_ROOT_URL: http://localhost:3001
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      # Provisioning configs (auto-configure datasources & dashboards)
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - cocos-network
+
+  # ----------------------------------------------------------------------------
+  # Loki - Log Aggregation
+  # ----------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:latest
+    container_name: cocos-loki
+    restart: unless-stopped
+    # No external ports - only accessible by Grafana internally
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - cocos-network
+
+  # ----------------------------------------------------------------------------
+  # Promtail - Log Shipping to Loki
+  # ----------------------------------------------------------------------------
+  promtail:
+    image: grafana/promtail:latest
+    container_name: cocos-promtail
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - cocos-network
+
+networks:
+  cocos-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
